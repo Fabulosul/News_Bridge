@@ -1,8 +1,3 @@
-# Protocoale de comunicatii
-# Laborator 7 - TCP
-# Echo Server
-# Makefile
-
 CFLAGS = -Wall -g -Werror -Wno-error=unused-variable
 
 # Portul pe care asculta serverul
@@ -11,25 +6,27 @@ PORT = 5000
 # Adresa IP a serverului
 IP_SERVER = 192.168.0.2
 
-all: server client
+all: server subscriber
 
 common.o: common.c
 
-# Compileaza server.c
-server: server.c common.o
+udp.o: udp.c udp.h
 
-# Compileaza client.c
-client: client.c common.o
+tcp.o: tcp.c tcp.h
+
+server: server.c common.o udp.o tcp.o
+	$(CC) $(CFLAGS) -o $@ $^
+
+subscriber: tcp_client.c common.o tcp.o
+	$(CC) $(CFLAGS) -o $@ $^
 
 .PHONY: clean run_server run_client
 
-# Ruleaza serverul
 run_server:
 	./server ${IP_SERVER} ${PORT}
 
-# Ruleaza clientul 	
 run_client:
 	./client ${IP_SERVER} ${PORT}
 
 clean:
-	rm -rf server client *.o *.dSYM
+	rm -rf server subscriber *.o *.dSYM

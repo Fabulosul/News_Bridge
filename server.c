@@ -15,7 +15,9 @@
 #include "udp.h"
 #include "tcp.h"
 
-#define MAX_CONNECTIONS 32
+#define MAX_CONNECTIONS 1024
+#define MAX_INPUT_BUFFER_SIZE 1500
+
 
 void add_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets, int new_fd) {
     // check if we need to increase the size of the poll_fds array
@@ -35,25 +37,29 @@ void add_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets, in
 
 void run_server(int udp_socket_fd, int tcp_listen_fd) {
 	// allocate memory for the poll_fds array
-	struct pollfd *poll_fds = malloc(2 * sizeof(struct pollfd));
-	/* initially, set the number of sockets to 2 (tcp listening port to accept connections
-	 * and the udp socket to receive packets) */
-	int num_sockets = 2;
+	struct pollfd *poll_fds = malloc(3 * sizeof(struct pollfd));
+	/* initially, set the number of sockets to 3 (tcp listening port to accept connections,
+	 * the udp socket to receive packets, and the standard input to close the server) */
+	int num_sockets = 3;
 	// the maximum number of sockets that can be handled by the server
-	int max_sockets = 2;
+	int max_sockets = 3;
 	int rc;
 	
 	// make the server wait for new connections on the listening socket
 	rc = listen(tcp_listen_fd, MAX_CONNECTIONS);
 	DIE(rc < 0, "listen failed");
+
+	// add the standard input to the poll_fds array
+	poll_fds[0].fd = STDIN_FILENO;
+	poll_fds[0].events = POLLIN;
 	
 	// add the UDP socket to the poll_fds array
-	poll_fds[0].fd = udp_socket_fd;
-	poll_fds[0].events = POLLIN;
+	poll_fds[1].fd = udp_socket_fd;
+	poll_fds[1].events = POLLIN;
 
 	// add the listening socket to the poll_fds array
-	poll_fds[1].fd = tcp_listen_fd;
-	poll_fds[1].events = POLLIN;
+	poll_fds[2].fd = tcp_listen_fd;
+	poll_fds[2].events = POLLIN;
 	
 	while (1) {
 		// wait for an event on any of the sockets
@@ -64,6 +70,28 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 		for (int i = 0; i < num_sockets; i++) {
 			// check from which socket we can read data 
 			if (poll_fds[i].revents & POLLIN) {
+				// check if we received data from the standard input
+				if(poll_fds[i].fd == STDIN_FILENO) {
+					/* read the data from the standard input */
+					// create a buffer to hold the data
+					char buffer[MAX_INPUT_BUFFER_SIZE];
+					int bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
+					DIE(bytes_read < 0, "read failed");
+					
+					// eliminate the new line character from the buffer
+					buffer[strlen(buffer) - 1] = '\0';
+
+					// check if the command is "exit"
+					if (strcmp(buffer, "exit") == 0) {
+						printf("Serverul se inchide...\n");
+						// close all the sockets
+						for (int j = 0; j < num_sockets; j++) {
+							close(poll_fds[j].fd);
+						}
+						free(poll_fds);
+						exit(0);
+					}
+				}
 				// check if the server received a new UDP packet
 				if(poll_fds[i].fd == udp_socket_fd) {
 					// struct used to hold the client address and port
@@ -72,17 +100,14 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					struct udp_packet udp_packet;
 					// read the UDP packet into the received_packet struct and get the client address
 					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
-
-					struct tcp_packet tcp_packet;
-					// set the TCP packet fields
-					tcp_packet.total_len = bytes_received;
-					tcp_packet.ip = udp_client_addr.sin_addr.s_addr;
-					tcp_packet.port = udp_client_addr.sin_port;
-					strcpy(tcp_packet.topic, udp_packet.topic);
-					tcp_packet.data_type = udp_packet.data_type;
-					strcpy(tcp_packet.content, udp_packet.content);
+					DIE(bytes_received < 0, "recv failed");
 					
-					for (int j = 1; j < num_sockets; j++) {
+					// create a TCP packet from the UDP packet data
+					struct tcp_packet tcp_packet = create_tcp_packet(udp_client_addr.sin_addr.s_addr,
+						udp_client_addr.sin_port, udp_packet.topic, udp_packet.data_type,
+						udp_packet.content);
+					
+					for (int j = 3; j < num_sockets; j++) {
 						// check if the socket is a TCP socket
 						if (poll_fds[j].fd != tcp_listen_fd) {
 							// send the UDP packet to the TCP socket
@@ -105,32 +130,12 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					printf("Noua conexiune de la %s, port %d, socket client %d\n",
 							inet_ntoa(tcp_client_addr.sin_addr), ntohs(tcp_client_addr.sin_port),
 							new_socket_fd);
+							
 				} else {
-					// we received data from an existing connection
-					int rc = recv_packet(poll_fds[i].fd, &received_packet,
-										sizeof(received_packet));
+					// we received data from an existing TCP sconnection
+					struct tcp_packet tcp_packet;
+					int rc = recv_tcp_packet(poll_fds[i].fd, &tcp_packet);
 					DIE(rc < 0, "recv failed");
-			
-					if (rc == 0) {
-						printf("Socket-ul client %d a inchis conexiunea\n", i);
-						close(poll_fds[i].fd);
-			
-						// eliminate the socket from the poll_fds array
-						for (int j = i; j < num_sockets - 1; j++) {
-						poll_fds[j] = poll_fds[j + 1];
-						}
-						
-						// decrease the number of sockets
-						num_sockets--;
-					} else {
-						printf("S-a primit de la clientul de pe socketul %d mesajul: %s\n",
-								poll_fds[i].fd, received_packet.content);
-						
-						for (int j = 1; j < num_sockets; j++) {
-							if(poll_fds[i].fd != poll_fds[j].fd)
-								send_packet(poll_fds[j].fd, &received_packet, sizeof(received_packet));
-							}
-					}
 				}
 			}
 		}
@@ -146,7 +151,7 @@ int main(int argc, char *argv[]) {
 	/* handle the TCP initializations */
 	// parse the port from the input
 	uint16_t port;
-	int rc = sscanf(argv[2], "%hu", &port);
+	int rc = sscanf(argv[1], "%hu", &port);
 	DIE(rc != 1, "The given port is not valid");
 	
 	// create a new network TCP socket
@@ -158,7 +163,7 @@ int main(int argc, char *argv[]) {
 	socklen_t socket_len = sizeof(struct sockaddr_in);
 	
 	// make the socket reusable
-	const int enable = 1;
+	int enable = 1;
 	rc = setsockopt(tcp_listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 	DIE(rc < 0, "setsockopt failed");
 	
@@ -187,7 +192,7 @@ int main(int argc, char *argv[]) {
 	}
   
 	// make the socket reusable
-	int enable = 1;
+	enable = 1;
 	rc = setsockopt(udp_socket_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 	DIE(rc < 0, "setsockopt failed");
   
@@ -203,6 +208,9 @@ int main(int argc, char *argv[]) {
 	// bind the previously created socket to the server address and port
 	rc = bind(udp_socket_fd, (const struct sockaddr *)&udp_server_address, sizeof(udp_server_address));
 	DIE(rc < 0, "bind failed");
+
+	// deactivate the buffering for the standard output
+	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 	
 	// open the server
 	run_server(udp_socket_fd, tcp_listen_fd);

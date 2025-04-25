@@ -1,107 +1,218 @@
-/*
- * Protocoale de comunicatii
- * Laborator 7 - TCP si mulplixare
- * client.c
- */
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/poll.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
- #include <arpa/inet.h>
- #include <ctype.h>
- #include <errno.h>
- #include <netdb.h>
- #include <netinet/in.h>
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
- #include <sys/poll.h>
- #include <sys/socket.h>
- #include <sys/types.h>
- #include <unistd.h>
+#include "common.h"
+#include "helpers.h"
+#include "tcp.h"
+
+#define NUM_SOCKETS 2
+#define MAX_BUFFER_SIZE 50 + 20 // sizeof(topic) + memory for the actual command(subscribe, unsubscribe...)
  
- #include "common.h"
- #include "helpers.h"
- 
- void run_client(int sockfd) {
-   char buf[MSG_MAXSIZE + 1];
-   memset(buf, 0, MSG_MAXSIZE + 1);
- 
-   struct chat_packet sent_packet;
-   struct chat_packet recv_packet;
- 
-   /*
-     TODO 2.2: Multiplexati intre citirea de la tastatura si primirea unui
-     mesaj, ca sa nu mai fie impusa ordinea.
- 
-     Hint: server::run_multi_chat_server
-   */
- 
-   struct pollfd poll_fds[2];
- 
-   poll_fds[0].fd = STDIN_FILENO;  // stdin
-   poll_fds[0].events = POLLIN;
- 
-   poll_fds[1].fd = sockfd;        // socketul conectat
-   poll_fds[1].events = POLLIN;
- 
-   while(1) {
-     int rc = poll(poll_fds, 2, -1);
-     DIE(rc < 0, "poll");
- 
- 
-     if (poll_fds[0].revents & POLLIN) {
-       memset(buf, 0, sizeof(buf));
-       fgets(buf, sizeof(buf), stdin);
-       buf[strlen(buf) - 1] = '\0';
-       sent_packet.len = strlen(buf) + 1;
-       strcpy(sent_packet.message, buf);
-       send_all(sockfd, &sent_packet, sizeof(sent_packet));
-     }
- 
-     if (poll_fds[1].revents & POLLIN) {
-       int rc = recv_all(sockfd, &recv_packet, sizeof(recv_packet));
-       if (rc <= 0) {
-         break;
-       }
-       printf("%s\n", recv_packet.message);
-     }
-   
-   }
+void print_tcp_packet(struct tcp_packet *tcp_packet) {
+	printf("%s:%d - %s", inet_ntoa(*(struct in_addr *)&tcp_packet->ip),
+			ntohs(tcp_packet->port), tcp_packet->topic);
+
+	switch(tcp_packet->data_type) {
+		// INT
+		case 0: 
+			printf(" - INT - %d\n", *(int *)tcp_packet->content);
+			break;
+		// SHORT_REAL
+		case 1:
+			printf(" - SHORT_REAL - %hd\n", *(unsigned int *)tcp_packet->content);
+			break;
+		// FLOAT
+		case 2:
+			printf(" - FLOAT - %f\n", *(float *)tcp_packet->content);
+			break;
+		// STRING
+		case 3:
+			printf(" - STRING - %s\n", tcp_packet->content);
+			break;
+		default:
+			fprintf(stderr, "Invalid data type\n");
+			break;
+	}
+}
+
+void run_tcp_client(int tcp_socket_fd) {
+	// allocate memory for the poll_fds array
+	/* initially, set the number of sockets to 2 (tcp socket to receive packets and 
+	 * standard input to close the client) */
+	struct pollfd *poll_fds = malloc(NUM_SOCKETS * sizeof(struct pollfd));
+	
+	// socket used to receive messages from the standard input
+	poll_fds[0].fd = STDIN_FILENO;
+	poll_fds[0].events = POLLIN;
+	
+	// socket used to receive and send packets
+	poll_fds[1].fd = tcp_socket_fd;
+	poll_fds[1].events = POLLIN;
+	
+	while(1) {
+		// wait for an event on any of the sockets
+		int rc = poll(poll_fds, NUM_SOCKETS, -1);
+		DIE(rc < 0, "poll");
+	
+
+		for (int i = 0; i < NUM_SOCKETS; i++) {
+			// check which socket has an event
+			if (poll_fds[i].revents & POLLIN) {
+				// check if we received data from the standard input
+				if(poll_fds[i].fd == STDIN_FILENO) {
+					char buffer[MAX_BUFFER_SIZE];
+					memset(buffer, 0, sizeof(buffer));
+					// read the data from the standard input
+					int bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
+					DIE(bytes_read < 0, "read failed");
+					// eliminate the new line character from the buffer
+					buffer[strlen(buffer) - 1] = '\0';
+					
+					// extract the command
+					char *command = strtok(buffer, " ");
+
+					if(strcmp(command, "subscribe") == 0) {
+						// extract the topic
+						char *topic = strtok(NULL, " ");
+						DIE(topic == NULL, "topic is missing");
+
+						// print the topic
+						printf("Subscribed to topic %s\n", topic);
+
+						// create a TCP packet to notify the server
+						struct tcp_packet subscribe_packet = create_tcp_packet(0, 0,
+							topic, 3, "Subscribe");
+
+						// send the TCP packet to the server
+						int bytes_sent = send_tcp_packet(tcp_socket_fd, &subscribe_packet);
+						DIE(bytes_sent < 0, "send failed");
+						
+					} else if(strcmp(command, "unsubscribe") == 0) {
+						// extract the topic from the buffer
+						char *topic = strtok(NULL, " ");
+						DIE(topic == NULL, "topic is missing");
+						
+						// print the topic
+						printf("Unsubscribed from topic %s\n", topic);
+
+						// create a TCP packet to notify the server
+						struct tcp_packet unsubscribe_packet = create_tcp_packet(0, 0,
+							topic, 3, "Unsubscribe");
+						
+						// send the TCP packet to the server
+						int bytes_sent = send_tcp_packet(tcp_socket_fd, &unsubscribe_packet);
+						DIE(bytes_sent < 0, "send failed");
+
+					} else if(strcmp(command, "exit") == 0) {
+						// print a suggestive message
+						printf("The client is closing ...\n");
+
+						// create a TCP packet to notify the server
+						struct tcp_packet exit_packet = create_tcp_packet(0, 0,
+							"", 3, "Close connection");
+
+						// send the TCP packet to the server to notify the connection is closed
+						int bytes_sent = send_tcp_packet(tcp_socket_fd, &exit_packet);
+						DIE(bytes_sent < 0, "send failed");
+						
+						// close the socket
+						close(tcp_socket_fd);
+						
+						// free the array
+						free(poll_fds);
+						
+						// exit the program
+						exit(0);
+
+					} else {
+						fprintf(stderr, "Invalid command\n");
+					}
+				}
+				// check if we received data from the TCP socket
+				if(poll_fds[i].fd == tcp_socket_fd) {
+					// struct used to hold the received TCP packet
+					struct tcp_packet tcp_packet;
+
+					// read the TCP packet into the received_packet struct
+					int bytes_read = recv_packet(tcp_socket_fd, &tcp_packet,
+						sizeof(tcp_packet));
+					DIE(bytes_read < 0, "recv failed");
+
+					// print the received message
+					print_tcp_packet(&tcp_packet);
+				}
+			}
+		}
+	
+	}
  }
  
- int main(int argc, char *argv[]) {
-   if (argc != 3) {
-     printf("\n Usage: %s <ip> <port>\n", argv[0]);
-     return 1;
-   }
- 
-   // Parsam port-ul ca un numar
-   uint16_t port;
-   int rc = sscanf(argv[2], "%hu", &port);
-   DIE(rc != 1, "Given port is invalid");
- 
-   // Obtinem un socket TCP pentru conectarea la server
-   const int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-   DIE(sockfd < 0, "socket");
- 
-   // Completăm in serv_addr adresa serverului, familia de adrese si portul
-   // pentru conectare
-   struct sockaddr_in serv_addr;
-   socklen_t socket_len = sizeof(struct sockaddr_in);
- 
-   memset(&serv_addr, 0, socket_len);
-   serv_addr.sin_family = AF_INET;
-   serv_addr.sin_port = htons(port);
-   rc = inet_pton(AF_INET, argv[1], &serv_addr.sin_addr.s_addr);
-   DIE(rc <= 0, "inet_pton");
- 
-   // Ne conectăm la server
-   rc = connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-   DIE(rc < 0, "connect");
- 
-   run_client(sockfd);
- 
-   // Inchidem conexiunea si socketul creat
-   close(sockfd);
- 
-   return 0;
+int main(int argc, char *argv[]) {
+	if (argc != 4) {
+		printf("\n Usage: %s <id_client > <ip_server> <port_server>\n", argv[0]);
+		return 1;
+	}
+
+	// parse the client id
+	char client_id[11];
+	memset(client_id, 0, sizeof(client_id));
+	int rc = sscanf(argv[1], "%s", client_id);
+	DIE(rc != 1, "Given client id is invalid");
+
+	// parse the port number
+	uint16_t port;
+	rc = sscanf(argv[3], "%hu", &port);
+	DIE(rc != 1, "Given port is invalid");
+
+	// create a new tcp_socket to receive packets
+	const int tcp_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+	DIE(tcp_socket_fd < 0, "socket creation failed");
+
+	// create a struct to hold the server address
+	struct sockaddr_in serv_addr;
+	socklen_t socket_len = sizeof(struct sockaddr_in);
+
+	// set the server address
+	memset(&serv_addr, 0, socket_len);
+	// set the server to work on IPv4
+	serv_addr.sin_family = AF_INET;
+	// set the port in the network byte order
+	serv_addr.sin_port = htons(port);
+	// set the server ip address
+	rc = inet_pton(AF_INET, argv[2], &serv_addr.sin_addr.s_addr);
+	DIE(rc <= 0, "inet_pton");
+
+	// connect the socket to the server
+	rc = connect(tcp_socket_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+	DIE(rc < 0, "connect");
+
+	// create a TCP packet to add the client id to the server
+	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, port,
+		client_id, 3, "Client Id");
+	
+	// send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);
+	int bytes_sent = send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);
+	DIE(bytes_sent < 0, "send failed");
+
+	// deactivate buffering for stdout
+	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+
+	// run the client
+	run_tcp_client(tcp_socket_fd);
+
+	// close the socket
+	close(tcp_socket_fd);
+
+	return 0;
  }
  
