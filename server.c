@@ -65,6 +65,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 		// wait for an event on any of the sockets
 		rc = poll(poll_fds, num_sockets, -1);
 		DIE(rc < 0, "poll failed");
+
+		printf("Am primit un eveniment de la un socket\n");
 		
 		// check which socket has an event
 		for (int i = 0; i < num_sockets; i++) {
@@ -72,6 +74,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 			if (poll_fds[i].revents & POLLIN) {
 				// check if we received data from the standard input
 				if(poll_fds[i].fd == STDIN_FILENO) {
+					printf("Am primit un mesaj de la standard input\n");
 					/* read the data from the standard input */
 					// create a buffer to hold the data
 					char buffer[MAX_INPUT_BUFFER_SIZE];
@@ -91,9 +94,11 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 						free(poll_fds);
 						exit(0);
 					}
+					break;
 				}
 				// check if the server received a new UDP packet
 				if(poll_fds[i].fd == udp_socket_fd) {
+					printf("Am primit un pachet UDP\n");
 					// struct used to hold the client address and port
 					struct sockaddr_in udp_client_addr;
 					// struct used to hold the received UDP packet
@@ -101,6 +106,15 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// read the UDP packet into the received_packet struct and get the client address
 					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
 					DIE(bytes_received < 0, "recv failed");
+
+					// // print the received message
+					// printf("Pachetul UDP primit de la clientul %s, port %d\n",
+					// 	inet_ntoa(udp_client_addr.sin_addr), ntohs(udp_client_addr.sin_port));
+					// printf("Topic: %s\n", udp_packet.topic);
+					// printf("Topic length: %ld\n", strlen(udp_packet.topic));
+					// printf("Content length: %ld\n", strlen(udp_packet.content));
+					// printf("Data type: %u\n", udp_packet.data_type);
+					// printf("Content: %d\n", ntohl(*(int *)(((void *)udp_packet.content) + 1)));
 					
 					// create a TCP packet from the UDP packet data
 					struct tcp_packet tcp_packet = create_tcp_packet(udp_client_addr.sin_addr.s_addr,
@@ -114,6 +128,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 							send_tcp_packet(poll_fds[j].fd, &tcp_packet);
 						}
 					}
+					break;
 				}
 				// check if the server received a new connection request
 				if (poll_fds[i].fd == tcp_listen_fd) {
@@ -132,10 +147,21 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 							new_socket_fd);
 							
 				} else {
-					// we received data from an existing TCP sconnection
+					// we received data from an existing TCP connection
+					printf("Am primit un pachet TCP de la un client\n");
 					struct tcp_packet tcp_packet;
 					int rc = recv_tcp_packet(poll_fds[i].fd, &tcp_packet);
 					DIE(rc < 0, "recv failed");
+
+					// print the whole packet
+					printf("Pachetul TCP primit de la clientul %d\n", poll_fds[i].fd);
+					printf("Topic: %s\n", tcp_packet.topic);
+					printf("Topic length: %d\n", ntohl(tcp_packet.topic_len));
+					printf("Content length: %d\n", ntohl(tcp_packet.content_len));
+					printf("IP: %s\n", inet_ntoa(*(struct in_addr *)&tcp_packet.ip));
+					printf("Port: %d\n", ntohs(tcp_packet.port));
+					printf("Data type: %u\n", tcp_packet.data_type);
+					printf("Content: %s\n", tcp_packet.content);
 				}
 			}
 		}

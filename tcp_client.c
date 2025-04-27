@@ -140,12 +140,12 @@ void run_tcp_client(int tcp_socket_fd) {
 				}
 				// check if we received data from the TCP socket
 				if(poll_fds[i].fd == tcp_socket_fd) {
+					printf("Received a TCP packet from the server\n");
 					// struct used to hold the received TCP packet
 					struct tcp_packet tcp_packet;
 
 					// read the TCP packet into the received_packet struct
-					int bytes_read = recv_packet(tcp_socket_fd, &tcp_packet,
-						sizeof(tcp_packet));
+					int bytes_read = recv_tcp_packet(tcp_socket_fd, &tcp_packet);
 					DIE(bytes_read < 0, "recv failed");
 
 					// print the received message
@@ -197,7 +197,7 @@ int main(int argc, char *argv[]) {
 	DIE(rc < 0, "connect");
 
 	// create a TCP packet to add the client id to the server
-	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, port,
+	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
 		client_id, 3, "Client Id");
 	
 	// send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);

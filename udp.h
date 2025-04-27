@@ -1,6 +1,6 @@
 struct udp_packet {
     char topic[50];
-    unsigned int data_type;
+    unsigned char data_type;
     char content[1500];
 };
 
