@@ -137,7 +137,6 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
     memcpy(packet.topic, topic, sizeof(packet.topic));
     packet.topic[strlen(packet.topic)] = '\0';
     packet.topic_len = htonl(strlen(packet.topic) + 1);
-    memcpy(packet.content, content, sizeof(packet.content));
 
     printf("data_type: %u\n", data_type);
 
@@ -156,6 +155,7 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
             break;
         // String
         case 3:
+            strncpy(packet.content, content, strlen(packet.content) + 1);
             packet.content_len = htonl(strlen(packet.content) + 1);
             break;
         default:

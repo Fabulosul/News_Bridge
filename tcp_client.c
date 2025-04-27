@@ -11,7 +11,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "common.h"
 #include "helpers.h"
 #include "tcp.h"
 

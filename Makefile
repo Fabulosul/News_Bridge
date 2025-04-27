@@ -8,17 +8,18 @@ IP_SERVER = 192.168.0.2
 
 all: server subscriber
 
-common.o: common.c
-
 udp.o: udp.c udp.h
 
 tcp.o: tcp.c tcp.h
 
-server: server.c common.o udp.o tcp.o
+server: server.c udp.o tcp.o list.o
 	$(CC) $(CFLAGS) -o $@ $^
 
-subscriber: tcp_client.c common.o tcp.o
+subscriber: tcp_client.c tcp.o list.o
 	$(CC) $(CFLAGS) -o $@ $^
+
+list.o: list.c list.h
+	$(CC) $(CFLAGS) -c list.c
 
 .PHONY: clean run_server run_client
 

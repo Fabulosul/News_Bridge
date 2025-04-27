@@ -6,18 +6,83 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
-#include "common.h"
 #include "helpers.h"
 #include "udp.h"
 #include "tcp.h"
+#include "server.h"
+#include "list.h"
 
 #define MAX_CONNECTIONS 1024
 #define MAX_INPUT_BUFFER_SIZE 1500
+#define TOPIC_SIZE 51 // 50 + 1 for the null terminator
+ 
 
+bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, int socket_fd) {
+	// find the client in the tcp_clients array
+	for (int i = 0; i < nr_tcp_clients; i++) {
+		// check if the current client mathes the given id
+		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+			// add null terminator
+			topic[strlen(topic)] = '\0';
+			// add the topic to the client's list of topics
+			insert_node((*tcp_clients)[i].topics, topic, TOPIC_SIZE);
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool remove_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, int socket_fd) {
+	// find the client in the tcp_clients array
+	for (int i = 0; i < nr_tcp_clients; i++) {
+		// check if the current client mathes the given id
+		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+			// remove the topic from the client's list of topics
+			topic[strlen(topic)] = '\0';
+			delete_node((*tcp_clients)[i].topics, topic, TOPIC_SIZE);
+			return true;
+		}
+	}
+	
+	return false;
+}
+
+bool add_tcp_client(struct tcp_client **tcp_clients, int *nr_tcp_clients, int *max_clients,
+		int socket_fd, int id) {
+	
+	// check if the client is already in the list
+	for (int i = 0; i < *nr_tcp_clients; i++) {
+		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+			// client already exists, no need to add it again
+			return false;
+		}
+	}
+	
+	// check if we need to increase the size of the tcp_clients array
+	if (*nr_tcp_clients >= *max_clients) {
+		// double the size of the tcp_clients array
+		*max_clients *= 2;
+		*tcp_clients = realloc(*tcp_clients, (*max_clients) * sizeof(struct tcp_client));
+		DIE(*tcp_clients == NULL, "realloc failed");
+	}
+
+	// add the new client to the tcp_clients array
+	(*tcp_clients)[*nr_tcp_clients].socket_fd = socket_fd;
+	(*tcp_clients)[*nr_tcp_clients].id = id;
+	// create a new list to hold the topics for the client
+	(*tcp_clients)[*nr_tcp_clients].topics = create_list();
+	DIE((*tcp_clients)[*nr_tcp_clients].topics == NULL, "create_list failed");
+	
+	(*nr_tcp_clients)++;
+
+	return true;
+}
 
 void add_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets, int new_fd) {
     // check if we need to increase the size of the poll_fds array
@@ -33,7 +98,6 @@ void add_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets, in
     (*poll_fds)[*num_sockets].events = POLLIN;
     (*num_sockets)++;
 }
-
 
 void run_server(int udp_socket_fd, int tcp_listen_fd) {
 	// allocate memory for the poll_fds array
@@ -60,7 +124,13 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 	// add the listening socket to the poll_fds array
 	poll_fds[2].fd = tcp_listen_fd;
 	poll_fds[2].events = POLLIN;
-	
+
+	// create a vector to hold the information about the TCP clients and make it resizable
+	int nr_tcp_clients = 0;
+	int max_tcp_clients = 2;
+	struct tcp_client *tcp_clients = malloc(max_tcp_clients * sizeof(struct tcp_client));
+	DIE(tcp_clients == NULL, "malloc failed");
+
 	while (1) {
 		// wait for an event on any of the sockets
 		rc = poll(poll_fds, num_sockets, -1);
@@ -106,15 +176,6 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// read the UDP packet into the received_packet struct and get the client address
 					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
 					DIE(bytes_received < 0, "recv failed");
-
-					// // print the received message
-					// printf("Pachetul UDP primit de la clientul %s, port %d\n",
-					// 	inet_ntoa(udp_client_addr.sin_addr), ntohs(udp_client_addr.sin_port));
-					// printf("Topic: %s\n", udp_packet.topic);
-					// printf("Topic length: %ld\n", strlen(udp_packet.topic));
-					// printf("Content length: %ld\n", strlen(udp_packet.content));
-					// printf("Data type: %u\n", udp_packet.data_type);
-					// printf("Content: %d\n", ntohl(*(int *)(((void *)udp_packet.content) + 1)));
 					
 					// create a TCP packet from the UDP packet data
 					struct tcp_packet tcp_packet = create_tcp_packet(udp_client_addr.sin_addr.s_addr,
@@ -145,13 +206,38 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					printf("Noua conexiune de la %s, port %d, socket client %d\n",
 							inet_ntoa(tcp_client_addr.sin_addr), ntohs(tcp_client_addr.sin_port),
 							new_socket_fd);
-							
 				} else {
 					// we received data from an existing TCP connection
 					printf("Am primit un pachet TCP de la un client\n");
 					struct tcp_packet tcp_packet;
 					int rc = recv_tcp_packet(poll_fds[i].fd, &tcp_packet);
 					DIE(rc < 0, "recv failed");
+
+					
+					if(strcmp(tcp_packet.content, "Client Id") == 0) {
+						// parse the client id from the topic of the packet
+						int client_id = *((int *)tcp_packet.topic);
+
+						printf("*****Client id: %d********\n", client_id);
+
+						// add the client to the list of TCP clients
+						add_tcp_client(&tcp_clients, &nr_tcp_clients, &max_tcp_clients,
+							poll_fds[i].fd, client_id);
+					} else {
+						if(strcmp(tcp_packet.content, "Subscribe") == 0) {
+							// add the topic to the client's list of topics
+							add_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, poll_fds[i].fd);
+							printf("********Clientul %d s-a abonat la topicul %s\n", poll_fds[i].fd, tcp_packet.topic);
+						} else {
+							if(strcmp(tcp_packet.content, "Unsubscribe") == 0) {
+								// remove the topic from the client's list of topics
+								remove_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, poll_fds[i].fd);
+								printf("********Clientul %d s-a dezabonat de la topicul %s\n", poll_fds[i].fd, tcp_packet.topic);
+							} else {
+								printf("Invalid Command\n");
+							}
+						}
+					}			
 
 					// print the whole packet
 					printf("Pachetul TCP primit de la clientul %d\n", poll_fds[i].fd);
