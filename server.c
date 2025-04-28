@@ -23,6 +23,78 @@
 #define TOPIC_SIZE 51 // 50 + 1 for the null terminator
  
 
+bool matches(char *topic, char *pattern) {
+    char topic_copy[TOPIC_SIZE];
+	char pattern_copy[TOPIC_SIZE];
+
+	// make a copy of the topic and pattern strings
+	memcpy(topic_copy, topic, TOPIC_SIZE);
+	memcpy(pattern_copy, pattern, TOPIC_SIZE);
+	
+	char *topic_ptr_copy;
+    char *pattern_ptr_copy;
+
+    char *topic_word = strtok_r(topic_copy, "/", &topic_ptr_copy);
+    char *pattern_word = strtok_r(pattern_copy, "/", &pattern_ptr_copy);
+
+    while (topic_word != NULL && pattern_word != NULL) {
+        if (strcmp(pattern_word, "*") == 0) {
+            pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
+            while (topic_word != NULL && pattern_word != NULL &&
+                    strcmp(topic_word, pattern_word) != 0) {
+                topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
+            }
+            if(pattern_word == NULL) {
+                return true;
+            }
+            continue;
+        }
+        if (strcmp(pattern_word, "+") == 0) {
+            topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
+            pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
+            continue;
+        }
+        if (strcmp(topic_word, pattern_word) != 0) {
+            return false;
+        }
+        topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
+        pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
+    }
+
+    if(pattern_word != NULL && strcmp(pattern_word, "*") == 0 && topic_word == NULL) {
+        return true;
+    }
+
+    return topic_word == NULL && pattern_word == NULL;
+}
+
+void send_message_to_subscribers(struct tcp_client **tcp_clients, int nr_tcp_clients,
+		struct tcp_packet *tcp_packet) {
+	char *topic = tcp_packet->topic;
+
+	// iterate through the list of TCP clients
+	for (int i = 0; i < nr_tcp_clients; i++) {
+		// check if the client is subscribed to the topic
+		struct tcp_client *client = &(*tcp_clients)[i];
+		// if the client is not subscribed to any topic, skip it
+		if(client->topics == NULL || is_empty(client->topics)) {
+			continue;
+		}
+		struct node *current_node = client->topics->head;
+		do {
+			// check if the topic matches the client's current topic
+			char *client_topic = (char *)current_node->data;
+			if (matches(topic, client_topic)) {
+				// send the message to the client
+				int rc = send_tcp_packet(client->socket_fd, tcp_packet);
+				DIE(rc < 0, "send failed");
+				printf("Mesajul a fost trimis clientului %d\n", client->id);
+			}
+			current_node = current_node->next;
+		} while (current_node != client->topics->head);
+	}
+}
+
 bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, int socket_fd) {
 	// find the client in the tcp_clients array
 	for (int i = 0; i < nr_tcp_clients; i++) {
@@ -191,14 +263,9 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					udp_client_addr.sin_port, udp_packet.topic, udp_packet.data_type,
 					udp_packet.content);
 
-				
-					for (int j = 3; j < num_sockets; j++) {
-						// check if the socket is a TCP socket
-						if (poll_fds[j].fd != tcp_listen_fd) {
-							// send the UDP packet to the TCP socket
-							send_tcp_packet(poll_fds[j].fd, &tcp_packet);
-						}
-					}
+					// send the message to all the subscribers
+					send_message_to_subscribers(&tcp_clients, nr_tcp_clients, &tcp_packet);
+					
 					break;
 				}
 				// check if the server received a new connection request
@@ -247,17 +314,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 								printf("Invalid Command\n");
 							}
 						}
-					}			
-
-					// print the whole packet
-					printf("Pachetul TCP primit de la clientul %d\n", poll_fds[i].fd);
-					printf("Topic: %s\n", tcp_packet.topic);
-					printf("Topic length: %d\n", ntohl(tcp_packet.topic_len));
-					printf("Content length: %d\n", ntohl(tcp_packet.content_len));
-					printf("IP: %s\n", inet_ntoa(*(struct in_addr *)&tcp_packet.ip));
-					printf("Port: %d\n", ntohs(tcp_packet.port));
-					printf("Data type: %u\n", tcp_packet.data_type);
-					printf("Content: %s\n", tcp_packet.content);
+					}	
 				}
 			}
 		}
