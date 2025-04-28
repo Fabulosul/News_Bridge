@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <math.h>
 
 #include "helpers.h"
 #include "udp.h"
@@ -27,6 +28,7 @@ bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic,
 	for (int i = 0; i < nr_tcp_clients; i++) {
 		// check if the current client mathes the given id
 		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+			printf("********Clientul %d s-a abonat la topicul %s\n", (*tcp_clients)[i].id, topic);
 			// add null terminator
 			topic[strlen(topic)] = '\0';
 			// add the topic to the client's list of topics
@@ -43,6 +45,7 @@ bool remove_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *top
 	for (int i = 0; i < nr_tcp_clients; i++) {
 		// check if the current client mathes the given id
 		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+			printf("********Clientul %d s-a dezabonat la topicul %s\n", (*tcp_clients)[i].id, topic);
 			// remove the topic from the client's list of topics
 			topic[strlen(topic)] = '\0';
 			delete_node((*tcp_clients)[i].topics, topic, TOPIC_SIZE);
@@ -173,15 +176,22 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					struct sockaddr_in udp_client_addr;
 					// struct used to hold the received UDP packet
 					struct udp_packet udp_packet;
+					memset(&udp_packet, 0, sizeof(udp_packet));
 					// read the UDP packet into the received_packet struct and get the client address
 					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
 					DIE(bytes_received < 0, "recv failed");
-					
+
+
+					// print the received message
+					printf("Pachetul UDP primit de la clientul %s, port %d\n",
+							inet_ntoa(udp_client_addr.sin_addr), ntohs(udp_client_addr.sin_port));
+
 					// create a TCP packet from the UDP packet data
 					struct tcp_packet tcp_packet = create_tcp_packet(udp_client_addr.sin_addr.s_addr,
-						udp_client_addr.sin_port, udp_packet.topic, udp_packet.data_type,
-						udp_packet.content);
-					
+					udp_client_addr.sin_port, udp_packet.topic, udp_packet.data_type,
+					udp_packet.content);
+
+				
 					for (int j = 3; j < num_sockets; j++) {
 						// check if the socket is a TCP socket
 						if (poll_fds[j].fd != tcp_listen_fd) {
@@ -210,13 +220,14 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// we received data from an existing TCP connection
 					printf("Am primit un pachet TCP de la un client\n");
 					struct tcp_packet tcp_packet;
+					memset(&tcp_packet, 0, sizeof(tcp_packet));
 					int rc = recv_tcp_packet(poll_fds[i].fd, &tcp_packet);
 					DIE(rc < 0, "recv failed");
 
 					
 					if(strcmp(tcp_packet.content, "Client Id") == 0) {
 						// parse the client id from the topic of the packet
-						int client_id = *((int *)tcp_packet.topic);
+						uint32_t client_id = ntohl(*(uint32_t *)(((void *)tcp_packet.topic) + 1));
 
 						printf("*****Client id: %d********\n", client_id);
 
@@ -227,7 +238,6 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 						if(strcmp(tcp_packet.content, "Subscribe") == 0) {
 							// add the topic to the client's list of topics
 							add_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, poll_fds[i].fd);
-							printf("********Clientul %d s-a abonat la topicul %s\n", poll_fds[i].fd, tcp_packet.topic);
 						} else {
 							if(strcmp(tcp_packet.content, "Unsubscribe") == 0) {
 								// remove the topic from the client's list of topics

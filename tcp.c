@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <math.h>
 
 #include "tcp.h"
 
@@ -135,10 +136,13 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
     packet.data_type = data_type;
     
     memcpy(packet.topic, topic, sizeof(packet.topic));
-    packet.topic[strlen(packet.topic)] = '\0';
-    packet.topic_len = htonl(strlen(packet.topic) + 1);
 
-    printf("data_type: %u\n", data_type);
+    packet.topic[strlen(packet.topic)] = '\0';
+    if(strcmp(content, "Client Id") == 0) {
+        packet.topic_len = htonl(5);
+    } else {
+        packet.topic_len = htonl(strlen(packet.topic));
+    }
 
     switch(data_type) {
         // Int
@@ -155,13 +159,14 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
             break;
         // String
         case 3:
-            strncpy(packet.content, content, strlen(packet.content) + 1);
-            packet.content_len = htonl(strlen(packet.content) + 1);
+            packet.content_len = htonl(strlen(content) + 1);
             break;
         default:
             fprintf(stderr, "Invalid data type\n");
             exit(EXIT_FAILURE);
     }
-    
+
+    memcpy(packet.content, content, ntohl(packet.content_len));
+
     return packet;
 }

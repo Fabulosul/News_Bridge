@@ -12,10 +12,10 @@ udp.o: udp.c udp.h
 
 tcp.o: tcp.c tcp.h
 
-server: server.c udp.o tcp.o list.o
+server: server.c udp.o tcp.o list.o -lm
 	$(CC) $(CFLAGS) -o $@ $^
 
-subscriber: tcp_client.c tcp.o list.o
+subscriber: tcp_client.c tcp.o list.o -lm
 	$(CC) $(CFLAGS) -o $@ $^
 
 list.o: list.c list.h

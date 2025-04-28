@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <math.h>
 
 #include "helpers.h"
 #include "tcp.h"
@@ -19,20 +20,39 @@
  
 void print_tcp_packet(struct tcp_packet *tcp_packet) {
 	printf("%s:%d - %s", inet_ntoa(*(struct in_addr *)&tcp_packet->ip),
-			ntohs(tcp_packet->port), tcp_packet->topic);
+	ntohs(tcp_packet->port), tcp_packet->topic);
 
+	uint8_t sign;
 	switch(tcp_packet->data_type) {
 		// INT
 		case 0: 
-			printf(" - INT - %d\n", *(int *)tcp_packet->content);
+			// get the first byte to find out the sign
+			sign = *(uint8_t *) tcp_packet->content;
+			// the number is positive
+			if(sign == 0) {
+				printf(" - INT - %u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
+			}
+			// the number is negative
+			if(sign == 1) {
+				printf(" - INT - -%u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
+			}
 			break;
 		// SHORT_REAL
 		case 1:
-			printf(" - SHORT_REAL - %hd\n", *(unsigned int *)tcp_packet->content);
+			uint16_t short_number = ntohs(*(uint16_t *)(tcp_packet->content));
+			printf(" - SHORT_REAL - %.2f\n", short_number / 100.0);
 			break;
 		// FLOAT
 		case 2:
-			printf(" - FLOAT - %f\n", *(float *)tcp_packet->content);
+			// get the components from the content 
+			sign = *(uint8_t *) tcp_packet->content;
+			uint32_t number = ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1));
+			uint8_t exponent = *(uint8_t *)(((void *)tcp_packet->content) + 5);
+
+			double original_number = number * pow(-1, sign) / pow(10, exponent);
+
+			printf(" - FLOAT - %.4f\n", (float)original_number);
+
 			break;
 		// STRING
 		case 3:
@@ -42,6 +62,7 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 			fprintf(stderr, "Invalid data type\n");
 			break;
 	}
+
 }
 
 void run_tcp_client(int tcp_socket_fd) {
@@ -196,10 +217,21 @@ int main(int argc, char *argv[]) {
 	DIE(rc < 0, "connect");
 
 	// create a TCP packet to add the client id to the server
-	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
-		client_id, 3, "Client Id");
+	char topic[50];
+	memset(topic, 0, sizeof(topic));
 	
-	// send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);
+	uint8_t sign = 0;
+	uint32_t number = htonl(atoi(client_id));
+	
+	// copy the sign to the content
+	memcpy(topic, &sign, sizeof(uint8_t));
+	// copy the client id to the content
+	memcpy(((void *)topic) + 1, &number, sizeof(uint32_t));
+
+	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
+		topic, 3, "Client Id");
+	
+	// send the TCP packet to the server
 	int bytes_sent = send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);
 	DIE(bytes_sent < 0, "send failed");
 
