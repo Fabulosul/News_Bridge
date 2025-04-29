@@ -3,9 +3,9 @@ struct tcp_packet {
     int topic_len;
     int ip;
     short int port;
-    char topic[50];
+    char topic[51];
     unsigned char data_type;
-    char content[1500];
+    char content[1501];
 };
 
 int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet);

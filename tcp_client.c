@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h> 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +29,7 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 		case 0: 
 			// get the first byte to find out the sign
 			sign = *(uint8_t *) tcp_packet->content;
+			
 			// the number is positive
 			if(sign == 0) {
 				printf(" - INT - %u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
@@ -51,7 +53,31 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 
 			double original_number = number * pow(-1, sign) / pow(10, exponent);
 
-			printf(" - FLOAT - %.4f\n", (float)original_number);
+			if(original_number == (int)original_number) {
+				// the number is an integer
+				printf(" - FLOAT - %.0f\n", original_number);
+			} else {
+				// the number is a float
+				// put the number in a buffer
+				char number_as_string[1000];
+				memset(number_as_string, 0, sizeof(number_as_string));
+				sprintf(number_as_string, "%f", original_number);
+				number_as_string[strlen(number_as_string)] = '\0';
+				
+				// find the first character that is not 0 from end
+				int length = strlen(number_as_string) - 1;
+				while (number_as_string[length] == '0') {
+					length--;
+				}
+
+				length++;
+
+				// eliminate the trailing zeros
+				number_as_string[length] = '\0';
+
+				// print the number
+				printf(" - FLOAT - %s\n", number_as_string);
+			}
 
 			break;
 		// STRING
@@ -65,7 +91,7 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 
 }
 
-void run_tcp_client(int tcp_socket_fd) {
+void run_tcp_client(int tcp_socket_fd, char *client_id) {
 	// allocate memory for the poll_fds array
 	/* initially, set the number of sockets to 2 (tcp socket to receive packets and 
 	 * standard input to close the client) */
@@ -134,17 +160,6 @@ void run_tcp_client(int tcp_socket_fd) {
 						DIE(bytes_sent < 0, "send failed");
 
 					} else if(strcmp(command, "exit") == 0) {
-						// print a suggestive message
-						printf("The client is closing ...\n");
-
-						// create a TCP packet to notify the server
-						struct tcp_packet exit_packet = create_tcp_packet(0, 0,
-							"", 3, "Close connection");
-
-						// send the TCP packet to the server to notify the connection is closed
-						int bytes_sent = send_tcp_packet(tcp_socket_fd, &exit_packet);
-						DIE(bytes_sent < 0, "send failed");
-						
 						// close the socket
 						close(tcp_socket_fd);
 						
@@ -160,13 +175,24 @@ void run_tcp_client(int tcp_socket_fd) {
 				}
 				// check if we received data from the TCP socket
 				if(poll_fds[i].fd == tcp_socket_fd) {
-					printf("Received a TCP packet from the server\n");
 					// struct used to hold the received TCP packet
 					struct tcp_packet tcp_packet;
+					memset(&tcp_packet, 0, sizeof(tcp_packet));
 
 					// read the TCP packet into the received_packet struct
 					int bytes_read = recv_tcp_packet(tcp_socket_fd, &tcp_packet);
 					DIE(bytes_read < 0, "recv failed");
+
+					if(bytes_read == 0) {
+						// the server has closed the connection
+						printf("Client %s disconnected.\n", client_id);
+						// close the socket
+						close(tcp_socket_fd);
+						// free the array
+						free(poll_fds);
+						// exit the program
+						exit(0);
+					}
 
 					// print the received message
 					print_tcp_packet(&tcp_packet);
@@ -188,6 +214,8 @@ int main(int argc, char *argv[]) {
 	memset(client_id, 0, sizeof(client_id));
 	int rc = sscanf(argv[1], "%s", client_id);
 	DIE(rc != 1, "Given client id is invalid");
+	// add the null terminator to the client id
+	client_id[strlen(client_id)] = '\0';
 
 	// parse the port number
 	uint16_t port;
@@ -197,6 +225,12 @@ int main(int argc, char *argv[]) {
 	// create a new tcp_socket to receive packets
 	const int tcp_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	DIE(tcp_socket_fd < 0, "socket creation failed");
+
+	// deactivate Nagle's algorithm
+	int enable = 1;
+	rc = setsockopt(tcp_socket_fd, IPPROTO_TCP, TCP_NODELAY, (char *)&enable, 
+					sizeof(int));
+	DIE(rc < 0, "setsockopt failed");
 
 	// create a struct to hold the server address
 	struct sockaddr_in serv_addr;
@@ -220,14 +254,10 @@ int main(int argc, char *argv[]) {
 	char topic[50];
 	memset(topic, 0, sizeof(topic));
 	
-	uint8_t sign = 0;
-	uint32_t number = htonl(atoi(client_id));
-	
-	// copy the sign to the content
-	memcpy(topic, &sign, sizeof(uint8_t));
-	// copy the client id to the content
-	memcpy(((void *)topic) + 1, &number, sizeof(uint32_t));
+	// copy the client id to the topic
+	memcpy(topic, client_id, strlen(client_id) + 1);
 
+	// create a TCP packet to send the client id to the server
 	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
 		topic, 3, "Client Id");
 	
@@ -239,7 +269,7 @@ int main(int argc, char *argv[]) {
 	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
 
 	// run the client
-	run_tcp_client(tcp_socket_fd);
+	run_tcp_client(tcp_socket_fd, client_id);
 
 	// close the socket
 	close(tcp_socket_fd);

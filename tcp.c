@@ -26,6 +26,10 @@ int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
             fprintf(stderr, "recv failed");
             return -1;
         }
+        if (bytes_read == 0) {
+            // connection closed
+            return 0;
+        }
         bytes_remaining -= bytes_read;
         total_bytes_read += bytes_read;
     } 
@@ -128,7 +132,7 @@ int send_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
 
 struct tcp_packet create_tcp_packet(int ip, short int port, char *topic, 
                                     unsigned char data_type, char *content) {
-    // Create a TCP packet with the given parameters
+    // Create a TCP packet with the given parameters    
     struct tcp_packet packet;
     memset(&packet, 0, sizeof(packet));
     packet.ip = ip;
@@ -136,13 +140,11 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
     packet.data_type = data_type;
     
     memcpy(packet.topic, topic, sizeof(packet.topic));
-
-    packet.topic[strlen(packet.topic)] = '\0';
-    if(strcmp(content, "Client Id") == 0) {
-        packet.topic_len = htonl(5);
-    } else {
-        packet.topic_len = htonl(strlen(packet.topic));
-    }
+    packet.topic[sizeof(packet.topic) - 1] = '\0';
+    packet.topic_len = htonl(strlen(packet.topic));
+    
+    memcpy(packet.content, content, sizeof(packet.content));
+    packet.content[sizeof(packet.content) - 1] = '\0';
 
     switch(data_type) {
         // Int
@@ -165,8 +167,6 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
             fprintf(stderr, "Invalid data type\n");
             exit(EXIT_FAILURE);
     }
-
-    memcpy(packet.content, content, ntohl(packet.content_len));
 
     return packet;
 }
