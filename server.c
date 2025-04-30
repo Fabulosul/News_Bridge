@@ -24,77 +24,6 @@
 #define TOPIC_SIZE 51 // 50 + 1 for the null terminator
  
 
-void print_tcp_packet(struct tcp_packet *tcp_packet) {
-	printf("%s:%d - %s", inet_ntoa(*(struct in_addr *)&tcp_packet->ip),
-	ntohs(tcp_packet->port), tcp_packet->topic);
-
-	uint8_t sign;
-	switch(tcp_packet->data_type) {
-		// INT
-		case 0: 
-			// get the first byte to find out the sign
-			sign = *(uint8_t *) tcp_packet->content;
-			// the number is positive
-			if(sign == 0) {
-				printf(" - INT - %u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
-			}
-			// the number is negative
-			if(sign == 1) {
-				printf(" - INT - -%u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
-			}
-			break;
-		// SHORT_REAL
-		case 1:
-			uint16_t short_number = ntohs(*(uint16_t *)(tcp_packet->content));
-			printf(" - SHORT_REAL - %.2f\n", short_number / 100.0);
-			break;
-		// FLOAT
-		case 2:
-			// get the components from the content 
-			sign = *(uint8_t *) tcp_packet->content;
-			uint32_t number = ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1));
-			uint8_t exponent = *(uint8_t *)(((void *)tcp_packet->content) + 5);
-
-			double original_number = number * pow(-1, sign) / pow(10, exponent);
-
-			if(original_number == (int)original_number) {
-				// the number is an integer
-				printf(" - FLOAT - %.0f\n", original_number);
-			} else {
-				// the number is a float
-				// put the number in a buffer
-				char number_as_string[1000];
-				memset(number_as_string, 0, sizeof(number_as_string));
-				sprintf(number_as_string, "%f", original_number);
-				number_as_string[strlen(number_as_string)] = '\0';
-				
-				// find the first character that is not 0 from end
-				int length = strlen(number_as_string) - 1;
-				while (number_as_string[length] == '0') {
-					length--;
-				}
-
-				length++;
-
-				// eliminate the trailing zeros
-				number_as_string[length] = '\0';
-
-				// print the number
-				printf(" - FLOAT - %s\n", number_as_string);
-			}
-
-			break;
-		// STRING
-		case 3:
-			printf(" - STRING - %s\n", tcp_packet->content);
-			break;
-		default:
-			fprintf(stderr, "Invalid data type\n");
-			break;
-	}
-
-}
-
 bool matches(char *topic, char *pattern) {
     char topic_copy[TOPIC_SIZE];
 	char pattern_copy[TOPIC_SIZE];
@@ -151,6 +80,34 @@ bool is_connected(struct tcp_client *tcp_clients, int nr_tcp_clients, char *id) 
 	return false;
 }
 
+void print_topics(struct tcp_client *tcp_clients, int nr_tcp_clients) {
+	printf("TCP clients %d\n", nr_tcp_clients);
+    printf("=== Subscribed Topics ===\n");
+    for (int i = 0; i < nr_tcp_clients; i++) {
+        struct tcp_client client = tcp_clients[i];
+        printf("Client ID: %s\n", client.id);
+
+        if (client.topics == NULL || is_empty(client.topics)) {
+            printf("  No topics subscribed.\n");
+            continue;
+        }
+
+        struct node *current_node = client.topics->head;
+        if (current_node == NULL) {
+            printf("  No topics subscribed.\n");
+            continue;
+        }
+
+        do {
+            char *topic = (char *)current_node->data;
+            printf("  - %s\n", topic);
+            current_node = current_node->next;
+        } while (current_node != client.topics->head);
+    }
+    printf("=========================\n");
+}
+
+
 void send_message_to_subscribers(struct tcp_client **tcp_clients, int nr_tcp_clients,
 		struct tcp_packet *tcp_packet) {
 	char *topic = tcp_packet->topic;
@@ -163,6 +120,7 @@ void send_message_to_subscribers(struct tcp_client **tcp_clients, int nr_tcp_cli
 			!is_connected(*tcp_clients, nr_tcp_clients, client->id)) {
 			continue;
 		}
+
 		struct node *current_node = client->topics->head;
 		do {
 			// check if the topic matches the client's current topic
@@ -177,13 +135,13 @@ void send_message_to_subscribers(struct tcp_client **tcp_clients, int nr_tcp_cli
 	}
 }
 
-bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, int socket_fd) {
+bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, char *id) {
 	// find the client in the tcp_clients array
 	for (int i = 0; i < nr_tcp_clients; i++) {
 		// check if the current client mathes the given id
-		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+		if (strcmp((*tcp_clients)[i].id, id) == 0) {
 			// add null terminator
-			topic[strlen(topic)] = '\0';
+			topic[TOPIC_SIZE] = '\0';
 			// add the topic to the client's list of topics
 			insert_node((*tcp_clients)[i].topics, topic, TOPIC_SIZE);
 			return true;
@@ -193,13 +151,13 @@ bool add_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic,
 	return false;
 }
 
-bool remove_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, int socket_fd) {
+bool remove_topic(struct tcp_client **tcp_clients, int nr_tcp_clients, char *topic, char *id) {
 	// find the client in the tcp_clients array
 	for (int i = 0; i < nr_tcp_clients; i++) {
 		// check if the current client mathes the given id
-		if ((*tcp_clients)[i].socket_fd == socket_fd) {
+		if (strcmp((*tcp_clients)[i].id, id) == 0) {
 			// remove the topic from the client's list of topics
-			topic[strlen(topic)] = '\0';
+			topic[TOPIC_SIZE] = '\0';
 			delete_node((*tcp_clients)[i].topics, topic, TOPIC_SIZE);
 			return true;
 		}
@@ -220,15 +178,14 @@ char *find_client_id(struct tcp_client *tcp_clients, int nr_tcp_clients, int soc
 
 void add_tcp_client(struct tcp_client **tcp_clients, int *nr_tcp_clients, int *max_clients,
 		int socket_fd, char *id) {
-		// check if the client is already in the list
-		for (int i = 0; i < *nr_tcp_clients; i++) {
-			// the client exist but has id NULL so we need to update the id
-			if ((*tcp_clients)[i].socket_fd == socket_fd && (*tcp_clients)[i].id[0] == '\0') {
-				memcpy((*tcp_clients)[i].id, id, strlen(id) + 1);
-				return;
-			}
+	// check if the client is in array
+	for (int i = 0; i < *nr_tcp_clients; i++) {
+		if (strcmp((*tcp_clients)[i].id, id) == 0) {
+			(*tcp_clients)[i].socket_fd = socket_fd;
+			(*tcp_clients)[i].is_connected = true;
+			return;
 		}
-	
+	}
 	
 	// check if we need to increase the size of the tcp_clients array
 	if (*nr_tcp_clients >= *max_clients) {
@@ -240,12 +197,7 @@ void add_tcp_client(struct tcp_client **tcp_clients, int *nr_tcp_clients, int *m
 
 	// add the new client to the tcp_clients array
 	(*tcp_clients)[*nr_tcp_clients].socket_fd = socket_fd;
-	if(id != NULL) {
-		memcpy((*tcp_clients)[*nr_tcp_clients].id, id, strlen(id) + 1);
-	} else {
-		// set the id to empty string
-		memset((*tcp_clients)[*nr_tcp_clients].id, 0, sizeof((*tcp_clients)[*nr_tcp_clients].id));
-	}
+	memcpy((*tcp_clients)[*nr_tcp_clients].id, id, strlen(id) + 1);
 	(*tcp_clients)[*nr_tcp_clients].is_connected = true;
 	// create a new list to hold the topics for the client
 	(*tcp_clients)[*nr_tcp_clients].topics = create_list();
@@ -408,13 +360,42 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					rc = setsockopt(new_socket_fd, IPPROTO_TCP, TCP_NODELAY, (char *)&enable, 
 									sizeof(int));
 					DIE(rc < 0, "setsockopt failed");
-			
-					// add the new socket to the poll_fds array
-					add_socket(&poll_fds, &num_sockets, &max_sockets, new_socket_fd);
 
-					// add the new tcp client to the tcp_clients array with id -1
- 					add_tcp_client(&tcp_clients, &nr_tcp_clients, &max_tcp_clients,
-												new_socket_fd, NULL);
+					// receive the id of the new client
+					struct tcp_packet tcp_packet;
+					memset(&tcp_packet, 0, sizeof(tcp_packet));
+
+					int bytes_read = recv_tcp_packet(new_socket_fd, &tcp_packet);
+					DIE(bytes_read < 0, "recv failed");
+
+					// check if we received the right packet
+					if(strcmp(tcp_packet.content, "Client Id") == 0) {
+						// parse the client id from the topic of the packet
+						char client_id[11];
+						memcpy(client_id, tcp_packet.topic, strlen(tcp_packet.topic) + 1);
+						DIE(client_id == NULL, "client id is null");
+						
+						if(is_connected(tcp_clients, nr_tcp_clients, client_id)) {
+							// the client is already connected
+							printf("Client %s already connected.\n", client_id);
+
+							// close the socket
+							close(new_socket_fd);
+
+							continue;
+						}
+
+						add_tcp_client(&tcp_clients, &nr_tcp_clients, &max_tcp_clients,
+							new_socket_fd, client_id);
+
+						// highlight the new client
+						printf("New client %s connected from %s:%d\n",
+							client_id,  inet_ntoa(*(struct in_addr *)&tcp_packet.ip), 
+							ntohs(tcp_packet.port));
+
+						// add the new socket to the poll_fds array
+						add_socket(&poll_fds, &num_sockets, &max_sockets, new_socket_fd);
+					}
 				} else {
 					// we received data from an existing TCP connection
 					struct tcp_packet tcp_packet;
@@ -425,49 +406,32 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// check if the server was notified that a client has disconnected
 					if (bytes_read == 0) {
 						char *client_id = find_client_id(tcp_clients, nr_tcp_clients, poll_fds[i].fd);
-						if (client_id != NULL) {
-							printf("Client %s disconnected.\n", client_id);
-							disconnect_client(&tcp_clients, &nr_tcp_clients, client_id);
-						} else {
-							fprintf(stderr, "Clientul nu a fost gasit in lista\n");
-						}
+						DIE(client_id == NULL, "client id is null");
+
+						printf("Client %s disconnected.\n", client_id);
+						
+						// set the client as disconnected
+						disconnect_client(&tcp_clients, &nr_tcp_clients, client_id);
+
+						// close the socket and remove it from the poll_fds array
 						remove_socket(&poll_fds, &num_sockets, &max_sockets, poll_fds[i].fd);
+
 						continue;
 					}
 
-					if(strcmp(tcp_packet.content, "Client Id") == 0) {
-						// parse the client id from the topic of the packet
-						char client_id[11];
-						memcpy(client_id, tcp_packet.topic, strlen(tcp_packet.topic) + 1);
-						DIE(client_id == NULL, "client id is null");
+					char *client_id = find_client_id(tcp_clients, nr_tcp_clients, poll_fds[i].fd);
 
-						if(is_connected(tcp_clients, nr_tcp_clients, client_id) == false) {
-							// update the client id in the tcp_clients array
-							add_tcp_client(&tcp_clients, &nr_tcp_clients, &max_tcp_clients,
-								poll_fds[i].fd, client_id);
-							// highlight the new client
-							printf("New client %s connected from %s:%d\n",
-								client_id,  inet_ntoa(*(struct in_addr *)&tcp_packet.ip), 
-								ntohs(tcp_packet.port));
-						} else {
-							// the client is already connected
-							printf("Client %s is already connected\n", client_id);
-							// remove the socket from the poll_fds array
-							remove_socket(&poll_fds, &num_sockets, &max_sockets, poll_fds[i].fd);
-						}
+					if(strcmp(tcp_packet.content, "Subscribe") == 0) {
+						// add the topic to the client's list of topics
+						add_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, client_id);
 					} else {
-						if(strcmp(tcp_packet.content, "Subscribe") == 0) {
-							// add the topic to the client's list of topics
-							add_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, poll_fds[i].fd);
+						if(strcmp(tcp_packet.content, "Unsubscribe") == 0) {
+							// remove the topic from the client's list of topics
+							remove_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, client_id);
 						} else {
-							if(strcmp(tcp_packet.content, "Unsubscribe") == 0) {
-								// remove the topic from the client's list of topics
-								remove_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, poll_fds[i].fd);
-							} else {
-								printf("Invalid Command2\n");
-							}
+							printf("Invalid Command\n");
 						}
-					}	
+					}
 				}
 			}
 		}

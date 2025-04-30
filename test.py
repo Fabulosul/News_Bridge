@@ -473,6 +473,7 @@ def run_test_same_id(server):
   sleep(1)
 
   outs = server.get_output_timeout(2)
+  
   success = True
 
   if c1bis.is_alive():

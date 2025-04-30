@@ -24,19 +24,28 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 	ntohs(tcp_packet->port), tcp_packet->topic);
 
 	uint8_t sign;
+	uint32_t number;
 	switch(tcp_packet->data_type) {
 		// INT
 		case 0: 
 			// get the first byte to find out the sign
 			sign = *(uint8_t *) tcp_packet->content;
+
+			number = ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1));
+
+			if(number == 0) {
+				// the number is 0
+				printf(" - INT - 0\n");
+				break;
+			}
 			
 			// the number is positive
 			if(sign == 0) {
-				printf(" - INT - %u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
+				printf(" - INT - %u\n", number);
 			}
 			// the number is negative
 			if(sign == 1) {
-				printf(" - INT - -%u\n", ntohl(*(uint32_t *)(((void *)tcp_packet->content) + 1)));
+				printf(" - INT - -%u\n", number);
 			}
 			break;
 		// SHORT_REAL

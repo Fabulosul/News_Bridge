@@ -56,11 +56,12 @@ bool delete_node(struct doubly_linked_list *list, void *data, int data_size) {
     }
 
     if(list->size == 1) {
-        if(list->head->data == data) {
+        if(memcmp(list->head->data, data, data_size) == 0) {
             free(list->head->data);
             free(list->head);
             list->head = NULL;
             list->size--;
+            return true;
         } else {
             return false;
         }
