@@ -129,6 +129,7 @@ void send_message_to_subscribers(struct tcp_client **tcp_clients, int nr_tcp_cli
 				// send the message to the client
 				int rc = send_tcp_packet(client->socket_fd, tcp_packet);
 				DIE(rc < 0, "send failed");
+				break;
 			}
 			current_node = current_node->next;
 		} while (current_node != client->topics->head);
