@@ -1,10 +1,5 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
+#include "doubly_linked_list.h"
 
-#include "list.h"
-#include "helpers.h"
 
 bool is_empty(struct doubly_linked_list *list) {
     return list->head == NULL;
@@ -112,4 +107,6 @@ void delete_list(struct doubly_linked_list *list) {
 
         current_node = next_node;
     } while(current_node != list->head);
+
+    free(list);
 }

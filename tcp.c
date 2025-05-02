@@ -1,14 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <arpa/inet.h>
-#include <math.h>
-
 #include "tcp.h"
-
-#define SHORT_REAL_PAYLOAD_SIZE 2
-#define INT_PAYLOAD_SIZE 5
-#define FLOAT_PAYLOAD_SIZE 6
 
 
 int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
@@ -18,18 +8,17 @@ int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     int bytes_remaining = sizeof(packet->topic_len) + sizeof(packet->content_len) +
         sizeof(packet->ip) + sizeof(packet->port);
 
-    // read the length of the topic and the length of the content
+    // read the length of the topic, the length of the content, the ip address and the port
     while (bytes_remaining > 0) {
         bytes_read = recv(tcp_socket_fd, (char *)packet + total_bytes_read, 
                               bytes_remaining, 0);
-        if (bytes_read < 0) {
-            fprintf(stderr, "recv failed");
-            return -1;
-        }
+        DIE(bytes_read < 0, "recv failed");
+        
+        // check if we received an empty packet stating that the connection was closed
         if (bytes_read == 0) {
-            // connection closed
             return 0;
         }
+        
         bytes_remaining -= bytes_read;
         total_bytes_read += bytes_read;
     } 
@@ -44,10 +33,8 @@ int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     while (bytes_remaining > 0) {
         bytes_read = recv(tcp_socket_fd, (char *)packet + total_bytes_read, 
                               bytes_remaining, 0);
-        if (bytes_read < 0) {
-            fprintf(stderr, "recv failed");
-            return -1;
-        }
+        DIE(bytes_read < 0, "recv failed");
+
         bytes_remaining -= bytes_read;
         total_bytes_read += bytes_read;
     }
@@ -59,10 +46,8 @@ int recv_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     while (bytes_remaining > 0) {
         bytes_read = recv(tcp_socket_fd, (char *)&packet->data_type + total_bytes_read,
                             bytes_remaining, 0);
-        if (bytes_read < 0) {
-            fprintf(stderr, "recv failed");
-            return -1;
-        }
+        DIE(bytes_read < 0, "recv failed");
+
         bytes_remaining -= bytes_read;
         total_bytes_read += bytes_read;
     }
@@ -86,10 +71,8 @@ int send_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     while (bytes_remaining > 0) {
         bytes_sent = send(tcp_socket_fd, (char *)packet + total_bytes_sent, 
                             bytes_remaining, 0);
-        if (bytes_sent < 0) {
-            fprintf(stderr, "send failed");
-            return -1;
-        }
+        DIE(bytes_sent < 0, "send failed");
+
         bytes_remaining -= bytes_sent;
         total_bytes_sent += bytes_sent;
     }
@@ -100,10 +83,8 @@ int send_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     while (bytes_remaining > 0) {
         bytes_sent = send(tcp_socket_fd, (char *)packet + total_bytes_sent, 
                             bytes_remaining, 0);
-        if (bytes_sent < 0) {
-            fprintf(stderr, "send failed");
-            return -1;
-        }
+        DIE(bytes_sent < 0, "send failed");
+
         bytes_remaining -= bytes_sent;
         total_bytes_sent += bytes_sent;
     }
@@ -115,10 +96,8 @@ int send_tcp_packet(int tcp_socket_fd, struct tcp_packet *packet) {
     while (bytes_remaining > 0) {
         bytes_sent = send(tcp_socket_fd, (char *)&packet->data_type + total_bytes_sent,
                             bytes_remaining, 0);
-        if (bytes_sent < 0) {
-            fprintf(stderr, "send failed");
-            return -1;
-        }
+        DIE(bytes_sent < 0, "send failed");
+
         bytes_remaining -= bytes_sent;
         total_bytes_sent += bytes_sent;
     }
@@ -135,6 +114,8 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
     // Create a TCP packet with the given parameters    
     struct tcp_packet packet;
     memset(&packet, 0, sizeof(packet));
+    
+    // Copy the parameters into the packet struct
     packet.ip = ip;
     packet.port = port;
     packet.data_type = data_type;
