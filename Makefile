@@ -27,4 +27,4 @@ doubly_linked_list.o: doubly_linked_list.c doubly_linked_list.h
 .PHONY: all clean
 
 clean:
-	rm -rf server subscriber *.o
+	rm -rf server subscriber *.o *.dSYM

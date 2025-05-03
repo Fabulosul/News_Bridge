@@ -156,17 +156,24 @@ bool matches(char *topic, char *pattern) {
 	while (topic_word != NULL && pattern_word != NULL) {
 		// pattern has the current word equal to "*"
 		if (strcmp(pattern_word, "*") == 0) {
+			char *remaining_pattern = strdup(pattern_ptr_copy);
 			// get the next word from pattern
-			pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
+			char *next_pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
 			// the pattern ends in "*" which means it can match the rest of the topic
-			if(pattern_word == NULL) {
+			if(next_pattern_word == NULL) {
+				free(remaining_pattern);
 				return true;
 			}
-			// iterate through topic until we find the new word from pattern
-			while (topic_word != NULL && strcmp(topic_word, pattern_word) != 0) {
+			
+			while (topic_word != NULL) {
+				if(matches(topic_ptr_copy, remaining_pattern)) {
+					free(remaining_pattern);
+					return true;
+				}
 				topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
 			}
-			continue;
+			free(remaining_pattern);
+			return false;
 		}
 		// pattern has the current word equal to "+"
 		if (strcmp(pattern_word, "+") == 0) {

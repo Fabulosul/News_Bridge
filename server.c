@@ -78,6 +78,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 
 						// exit the program
 						exit(EXIT_SUCCESS);
+					} else {
+						fprintf(stderr, "Invalid command\n");
 					}
 					break;
 				}
