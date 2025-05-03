@@ -197,8 +197,8 @@ int main(int argc, char *argv[]) {
 	DIE(ret == NULL, "memcpy failed");
 
 	// create a TCP packet to send the client id to the server
-	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
-		topic, 3, "Client Id");
+	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, 
+												htons(port), topic, 3, "Client Id");
 	
 	// send the TCP packet to the server
 	int bytes_sent = send_tcp_packet(tcp_socket_fd, &new_subscriber_packet);
@@ -215,6 +215,6 @@ int main(int argc, char *argv[]) {
 	rc = close(tcp_socket_fd);
 	DIE(rc < 0, "close failed");
 
-	return 0;
+	return EXIT_SUCCESS;
  }
  

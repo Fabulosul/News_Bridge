@@ -1,5 +1,6 @@
 #include "tcp_client_utils.h"
  
+
 void print_tcp_packet(struct tcp_packet *tcp_packet) {
 	printf("%s:%d - %s", inet_ntoa(*(struct in_addr *)&tcp_packet->ip),
 	ntohs(tcp_packet->port), tcp_packet->topic);

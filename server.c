@@ -96,12 +96,14 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					void *ret = memset(&udp_packet, 0, sizeof(udp_packet));
 					DIE(ret == NULL, "memset failed");
 					
-					// read the UDP packet into the received_packet struct and get the client address
-					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
+					// read the UDP packet into the packet struct and get the client address
+					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet,
+															&udp_client_addr);
 					DIE(bytes_received < 0, "recv failed");
 
 					// create a TCP packet from the UDP packet data
-					struct tcp_packet tcp_packet = create_tcp_packet(udp_client_addr.sin_addr.s_addr,
+					struct tcp_packet tcp_packet = create_tcp_packet
+													(udp_client_addr.sin_addr.s_addr,
 													udp_client_addr.sin_port, udp_packet.topic, 
 													udp_packet.data_type, udp_packet.content);
 
@@ -137,7 +139,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					if(strcmp(tcp_packet.content, "Client Id") == 0) {
 						// parse the client id from the topic of the packet
 						char client_id[11];
-						void *ret = memcpy(client_id, tcp_packet.topic, strlen(tcp_packet.topic) + 1);
+						void *ret = memcpy(client_id, tcp_packet.topic, 
+											strlen(tcp_packet.topic) + 1);
 						DIE(ret == NULL, "memcpy failed");
 						
 						if(is_connected(tcp_clients, nr_tcp_clients, client_id)) {
@@ -176,7 +179,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// check if the server was notified that a client has disconnected
 					if (bytes_read == 0) {
 						// find the client id associated with the socket to set it as disconnected
-						char *client_id = find_client_id(tcp_clients, nr_tcp_clients, poll_fds[i].fd);
+						char *client_id = find_client_id(tcp_clients, nr_tcp_clients, 
+															poll_fds[i].fd);
 						DIE(client_id == NULL, "client id is null");
 
 						printf("Client %s disconnected.\n", client_id);
@@ -247,7 +251,8 @@ int main(int argc, char *argv[]) {
 	tcp_server_adress.sin_addr.s_addr = INADDR_ANY;
 	
 	// bind the previously created socket to the server address and port
-	rc = bind(tcp_listen_fd, (const struct sockaddr *)&tcp_server_adress, sizeof(tcp_server_adress));
+	rc = bind(tcp_listen_fd, (const struct sockaddr *)&tcp_server_adress, 
+				sizeof(tcp_server_adress));
 	DIE(rc < 0, "bind failed");
 
 
@@ -273,7 +278,8 @@ int main(int argc, char *argv[]) {
 	udp_server_address.sin_port = htons(port);
   
 	// bind the previously created socket to the server address and port
-	rc = bind(udp_socket_fd, (const struct sockaddr *)&udp_server_address, sizeof(udp_server_address));
+	rc = bind(udp_socket_fd, (const struct sockaddr *)&udp_server_address, 
+				sizeof(udp_server_address));
 	DIE(rc < 0, "bind failed");
 
 	// deactivate the buffering for the standard output
@@ -286,7 +292,11 @@ int main(int argc, char *argv[]) {
 	// close the socket
 	rc = close(tcp_listen_fd);
 	DIE(rc < 0, "close failed");
+
+	// close the UDP socket
+	rc = close(udp_socket_fd);
+	DIE(rc < 0, "close failed");
 	
-	return 0;
+	return EXIT_SUCCESS;
 }
 	

@@ -1,10 +1,8 @@
 #ifndef SERVER_UTILS_H
 #define SERVER_UTILS_H
 
-#include <arpa/inet.h>
 #include <unistd.h>
 #include <poll.h>
-#include <string.h>
 #include <netinet/tcp.h>
 
 #include "udp.h"
@@ -23,6 +21,7 @@ struct tcp_client {
 #define MAX_CONNECTIONS 1024
 #define MAX_INPUT_BUFFER_SIZE 1000
 #define NUM_SOCKETS 3 // the number of sockets that the server can handle initially
+
 
 /**
  * @brief Adds a new socket to the poll_fds array. 

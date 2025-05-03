@@ -1,5 +1,6 @@
 #include "server_utils.h"
 
+
 void add_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets, int new_fd) {
 	// check if the poll_fds array is full
 	if (*num_sockets >= *max_sockets) {
@@ -158,7 +159,7 @@ bool matches(char *topic, char *pattern) {
 	char *pattern_word = strtok_r(pattern_copy, "/", &pattern_ptr_copy);
 
 	while (topic_word != NULL && pattern_word != NULL) {
-		// pattern has the current word equal to "*"
+		// the current word in pattern is equal to "*"
 		if (strcmp(pattern_word, "*") == 0) {
 			// make a copy of the string after the "*" in the pattern
 			char *remaining_pattern = strdup(pattern_ptr_copy);
@@ -170,11 +171,10 @@ bool matches(char *topic, char *pattern) {
 				free(remaining_pattern);
 				return true;
 			}
-			
-			// try to skip 0, 1, 2, ... words from the topic due to "*" presence
+			// try to skip 0, 1, 2, 3, ... words from the topic due to "*" presence
 			while (topic_word != NULL) {
-				// if by skipping a certain number of words of topic we can match the remaining 
-				// pattern, we can return true
+				/* if by skipping a certain number of words of topic we can match the remaining 
+				 * pattern, we can return true */
 				if(matches(topic_ptr_copy, remaining_pattern)) {
 					// free the allocated memory for the copy of the pattern
 					free(remaining_pattern);
@@ -187,24 +187,27 @@ bool matches(char *topic, char *pattern) {
 			free(remaining_pattern);
 			return false;
 		}
-		// pattern has the current word equal to "+"
+
+		// the current word in pattern is equal to "+"
 		if (strcmp(pattern_word, "+") == 0) {
 			// skip one word from both topic and pattern
 			topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
 			pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
 			continue;
 		}
-		// pattern has no wildcard in the current word
+
+		// pattern has no wildcards in the current word
 		// check if the current word from topic is equal to the current word from pattern
 		if (strcmp(topic_word, pattern_word) != 0) {
 			return false;
 		}
+
 		// get the next word from both topic and pattern
 		topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
 		pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
 	}
 
-	// if both topic and pattern are NULL, they are a match
+	// if both the topic and the pattern are NULL, the topic and pattern match
 	return topic_word == NULL && pattern_word == NULL;
 }
 

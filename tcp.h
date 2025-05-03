@@ -1,11 +1,8 @@
 #ifndef TCP_H
 #define TCP_H
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
-#include <math.h>
 
 #include "helpers.h"
 
