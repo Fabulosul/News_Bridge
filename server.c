@@ -1,10 +1,10 @@
 #include "server_utils.h"
 
-
  
 void run_server(int udp_socket_fd, int tcp_listen_fd) {
 	// allocate memory for the poll_fds array
 	struct pollfd *poll_fds = malloc(NUM_SOCKETS * sizeof(struct pollfd));
+	DIE(poll_fds == NULL, "malloc failed");
 	/* initially, set the number of sockets to 3 (the standard input to receive server closure,
 	 * the udp socket to receive packets and the tcp listening port to accept new connections) */
 	int num_sockets = NUM_SOCKETS;
@@ -46,7 +46,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 				if(poll_fds[i].fd == STDIN_FILENO) {
 					// create a buffer to hold the received data
 					char buffer[MAX_INPUT_BUFFER_SIZE];
-					memset(buffer, 0, sizeof(buffer));
+					void *ret = memset(buffer, 0, sizeof(buffer));
+					DIE(ret == NULL, "memset failed");
 					
 					// read the data from the standard input
 					int bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
@@ -57,14 +58,17 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					// check if the command is "exit"
 					if (strcmp(buffer, "exit") == 0) {						
 						// close the UDP socket
-						close(udp_socket_fd);
+						rc = close(udp_socket_fd);
+						DIE(rc < 0, "close failed");
 
 						// close the TCP listening socket
-						close(tcp_listen_fd);
+						rc = close(tcp_listen_fd);
+						DIE(rc < 0, "close failed");
 						
 						// close all the TCP sockets
 						for (int j = 0; j < num_sockets; j++) {
-							close(poll_fds[j].fd);
+							rc = close(poll_fds[j].fd);
+							DIE(rc < 0, "close failed");
 						}
 
 						// free poll_fds array
@@ -79,7 +83,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 						// exit the program
 						exit(EXIT_SUCCESS);
 					} else {
-						fprintf(stderr, "Invalid command\n");
+						fprintf(stderr, "Error: Invalid command\n");
 					}
 					break;
 				}
@@ -89,7 +93,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					struct sockaddr_in udp_client_addr;
 					// struct used to hold the received UDP packet
 					struct udp_packet udp_packet;
-					memset(&udp_packet, 0, sizeof(udp_packet));
+					void *ret = memset(&udp_packet, 0, sizeof(udp_packet));
+					DIE(ret == NULL, "memset failed");
 					
 					// read the UDP packet into the received_packet struct and get the client address
 					int bytes_received = recv_udp_packet(udp_socket_fd, &udp_packet, &udp_client_addr);
@@ -123,7 +128,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 
 					// we now need to receive the client id from the new socket
 					struct tcp_packet tcp_packet;
-					memset(&tcp_packet, 0, sizeof(tcp_packet));
+					void *ret = memset(&tcp_packet, 0, sizeof(tcp_packet));
+					DIE(ret == NULL, "memset failed");
 					int bytes_read = recv_tcp_packet(new_socket_fd, &tcp_packet);
 					DIE(bytes_read < 0, "recv failed");
 
@@ -131,15 +137,16 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 					if(strcmp(tcp_packet.content, "Client Id") == 0) {
 						// parse the client id from the topic of the packet
 						char client_id[11];
-						memcpy(client_id, tcp_packet.topic, strlen(tcp_packet.topic) + 1);
-						DIE(client_id == NULL, "client id is null");
+						void *ret = memcpy(client_id, tcp_packet.topic, strlen(tcp_packet.topic) + 1);
+						DIE(ret == NULL, "memcpy failed");
 						
 						if(is_connected(tcp_clients, nr_tcp_clients, client_id)) {
 							// the client is already connected
 							printf("Client %s already connected.\n", client_id);
 
 							// close the socket
-							close(new_socket_fd);
+							rc = close(new_socket_fd);
+							DIE(rc < 0, "close failed");
 
 							continue;
 						}
@@ -159,7 +166,8 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 				} else {
 					// we received data from an existing TCP connection
 					struct tcp_packet tcp_packet;
-					memset(&tcp_packet, 0, sizeof(tcp_packet));
+					void * ret = memset(&tcp_packet, 0, sizeof(tcp_packet));
+					DIE(ret == NULL, "memset failed");
 					
 					// read the TCP packet into the tcp_packet struct
 					int bytes_read = recv_tcp_packet(poll_fds[i].fd, &tcp_packet);
@@ -184,6 +192,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 
 					// find the client id associated with the socket
 					char *client_id = find_client_id(tcp_clients, nr_tcp_clients, poll_fds[i].fd);
+					DIE(client_id == NULL, "client id is null");
 
 					// check which command was received
 					if(strcmp(tcp_packet.content, "Subscribe") == 0) {
@@ -194,7 +203,7 @@ void run_server(int udp_socket_fd, int tcp_listen_fd) {
 							// remove the topic from the client's list of topics
 							remove_topic(&tcp_clients, nr_tcp_clients, tcp_packet.topic, client_id);
 						} else {
-							printf("Invalid Command\n");
+							printf("Error: Invalid Command\n");
 						}
 					}
 				}
@@ -228,7 +237,8 @@ int main(int argc, char *argv[]) {
 	rc = setsockopt(tcp_listen_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 	DIE(rc < 0, "setsockopt failed");
 
-	memset(&tcp_server_adress, 0, socket_len);
+	void *ret = memset(&tcp_server_adress, 0, socket_len);
+	DIE(ret == NULL, "memset failed");
 	// set the server to work on IPv4
 	tcp_server_adress.sin_family = AF_INET;
 	// set the port in the network byte order
@@ -253,7 +263,8 @@ int main(int argc, char *argv[]) {
 	rc = setsockopt(udp_socket_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
 	DIE(rc < 0, "setsockopt failed");
   
-	memset(&udp_server_address, 0, sizeof(udp_server_address));
+	ret = memset(&udp_server_address, 0, sizeof(udp_server_address));
+	DIE(ret == NULL, "memset failed");
 	// set the server to work on IPv4
 	udp_server_address.sin_family = AF_INET;
 	// set the server ip address to 0.0.0.0
@@ -266,13 +277,15 @@ int main(int argc, char *argv[]) {
 	DIE(rc < 0, "bind failed");
 
 	// deactivate the buffering for the standard output
-	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+	rc = setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+	DIE(rc < 0, "setvbuf failed");
 	
 	// open the server
 	run_server(udp_socket_fd, tcp_listen_fd);
 	
 	// close the socket
-	close(tcp_listen_fd);
+	rc = close(tcp_listen_fd);
+	DIE(rc < 0, "close failed");
 	
 	return 0;
 }

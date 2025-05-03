@@ -20,7 +20,8 @@ void remove_socket(struct pollfd **poll_fds, int *num_sockets, int *max_sockets,
 	for (int i = 0; i < *num_sockets; i++) {
 		if ((*poll_fds)[i].fd == socket_fd) {
 			// close the socket
-			close(socket_fd);
+			int rc = close(socket_fd);
+			DIE(rc < 0, "close failed");
 			// remove the socket from the poll_fds array and replace it with the last socket
 			(*poll_fds)[i] = (*poll_fds)[*num_sockets - 1];
 			// set the last socket to -1 stating that it is not used
@@ -96,7 +97,8 @@ void add_tcp_client(struct tcp_client **tcp_clients, int *nr_tcp_clients, int *m
 
 	// add the new client to the tcp_clients array
 	(*tcp_clients)[*nr_tcp_clients].socket_fd = socket_fd;
-	memcpy((*tcp_clients)[*nr_tcp_clients].id, id, strlen(id) + 1);
+	void *rc = memcpy((*tcp_clients)[*nr_tcp_clients].id, id, strlen(id) + 1);
+	DIE(rc == NULL, "memcpy failed");
 	(*tcp_clients)[*nr_tcp_clients].is_connected = true;
 	// create a new list to hold the topics for the client
 	(*tcp_clients)[*nr_tcp_clients].topics = create_list();
@@ -142,10 +144,12 @@ bool matches(char *topic, char *pattern) {
 	char pattern_copy[TOPIC_SIZE];
 
 	// make a copy of the topic and pattern strings
-	memcpy(topic_copy, topic, TOPIC_SIZE);
-	memcpy(pattern_copy, pattern, TOPIC_SIZE);
-	
-	// declare pointers to hold the current positions in the strings
+	void *rc = memcpy(topic_copy, topic, TOPIC_SIZE);
+	DIE(rc == NULL, "memcpy failed");
+	rc = memcpy(pattern_copy, pattern, TOPIC_SIZE);
+	DIE(rc == NULL, "memcpy failed");
+
+	// declare pointers to hold the current positions in the two strings
 	char *topic_ptr_copy;
 	char *pattern_ptr_copy;
 
@@ -156,22 +160,30 @@ bool matches(char *topic, char *pattern) {
 	while (topic_word != NULL && pattern_word != NULL) {
 		// pattern has the current word equal to "*"
 		if (strcmp(pattern_word, "*") == 0) {
+			// make a copy of the string after the "*" in the pattern
 			char *remaining_pattern = strdup(pattern_ptr_copy);
 			// get the next word from pattern
 			char *next_pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
 			// the pattern ends in "*" which means it can match the rest of the topic
 			if(next_pattern_word == NULL) {
+				// free tha allocated memory for the copy of the pattern
 				free(remaining_pattern);
 				return true;
 			}
 			
+			// try to skip 0, 1, 2, ... words from the topic due to "*" presence
 			while (topic_word != NULL) {
+				// if by skipping a certain number of words of topic we can match the remaining 
+				// pattern, we can return true
 				if(matches(topic_ptr_copy, remaining_pattern)) {
+					// free the allocated memory for the copy of the pattern
 					free(remaining_pattern);
 					return true;
 				}
+				// skip one more word from the topic
 				topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
 			}
+			// if all the possibilities failed, we can return false
 			free(remaining_pattern);
 			return false;
 		}
@@ -190,11 +202,6 @@ bool matches(char *topic, char *pattern) {
 		// get the next word from both topic and pattern
 		topic_word = strtok_r(NULL, "/", &topic_ptr_copy);
 		pattern_word = strtok_r(NULL, "/", &pattern_ptr_copy);
-	}
-
-	// if the pattern ended in "*" and the topic is not finished, it is a match anyway
-	if(pattern_word != NULL && strcmp(pattern_word, "*") == 0 && topic_word == NULL) {
-		return true;
 	}
 
 	// if both topic and pattern are NULL, they are a match

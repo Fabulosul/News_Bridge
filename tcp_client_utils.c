@@ -51,8 +51,10 @@ void print_tcp_packet(struct tcp_packet *tcp_packet) {
 				// the number is a float
 				// put the number in a buffer
 				char number_as_string[100];
-				memset(number_as_string, 0, sizeof(number_as_string));
-				sprintf(number_as_string, "%f", original_number);
+				void *ret = memset(number_as_string, 0, sizeof(number_as_string));
+				DIE(ret == NULL, "memset failed");
+				int rc = sprintf(number_as_string, "%f", original_number);
+				DIE(rc < 0, "sprintf failed");
 				number_as_string[strlen(number_as_string)] = '\0';
 				
 				// find the first character that is not 0 from end

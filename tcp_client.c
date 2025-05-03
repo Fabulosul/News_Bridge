@@ -1,5 +1,6 @@
 #include "tcp_client_utils.h"
 
+
 void run_tcp_client(int tcp_socket_fd, char *client_id) {
 	// allocate memory for the poll_fds array
 	// only use 2 sockets - one for the standard input and one for the TCP socket
@@ -26,7 +27,8 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 				if(poll_fds[i].fd == STDIN_FILENO) {
 					// buffer used to hold the message received from the standard input
 					char buffer[MAX_BUFFER_SIZE];
-					memset(buffer, 0, sizeof(buffer));
+					void *ret = memset(buffer, 0, sizeof(buffer));
+					DIE(ret == NULL, "memset failed");
 
 					// read the data from the standard input
 					int bytes_read = read(STDIN_FILENO, buffer, sizeof(buffer));
@@ -41,7 +43,10 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 					if(strcmp(command, "subscribe") == 0) {
 						// extract the topic
 						char *topic = strtok(NULL, " ");
-						DIE(topic == NULL, "topic is missing");
+						if(topic == NULL) {
+							fprintf(stderr, "Error: Topic is missing\n");
+							continue;
+						}
 
 						// print a suggestive message
 						printf("Subscribed to topic %s\n", topic);
@@ -58,7 +63,10 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 					} else if(strcmp(command, "unsubscribe") == 0) {
 						// extract the topic from the buffer
 						char *topic = strtok(NULL, " ");
-						DIE(topic == NULL, "topic is missing");
+						if(topic == NULL) {
+							fprintf(stderr, "Error: Topic is missing\n");
+							continue;
+						}
 						
 						// print a suggestive message
 						printf("Unsubscribed from topic %s\n", topic);
@@ -73,8 +81,14 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 						DIE(bytes_sent < 0, "send failed");
 
 					} else if(strcmp(command, "exit") == 0) {
+						if(strtok(NULL, " ") != NULL) {
+							fprintf(stderr, "Error: Invalid command\n");
+							continue;
+						}
+						
 						// close the socket
-						close(tcp_socket_fd);
+						int rc = close(tcp_socket_fd);
+						DIE(rc < 0, "close failed");
 						
 						// free the poll_fds array
 						free(poll_fds);
@@ -83,14 +97,15 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 						exit(EXIT_SUCCESS);
 
 					} else {
-						fprintf(stderr, "Invalid command\n");
+						fprintf(stderr, "Error: Invalid command\n");
 					}
 				}
 				// the client received data from the TCP socket
 				if(poll_fds[i].fd == tcp_socket_fd) {
 					// struct used to hold the received TCP packet
 					struct tcp_packet tcp_packet;
-					memset(&tcp_packet, 0, sizeof(tcp_packet));
+					void *ret = memset(&tcp_packet, 0, sizeof(tcp_packet));
+					DIE(ret == NULL, "memset failed");
 
 					// read the TCP packet into the tcp_packet struct
 					int bytes_read = recv_tcp_packet(tcp_socket_fd, &tcp_packet);
@@ -100,7 +115,8 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
 					if(bytes_read == 0) {
 						printf("Client %s disconnected.\n", client_id);
 						// close the socket
-						close(tcp_socket_fd);
+						int rc = close(tcp_socket_fd);
+						DIE(rc < 0, "close failed");
 						// free the array
 						free(poll_fds);
 						// exit the program
@@ -116,13 +132,25 @@ void run_tcp_client(int tcp_socket_fd, char *client_id) {
  }
  
 int main(int argc, char *argv[]) {
-	DIE(argc != 4, "Usage: <id_client> <ip_server> <port_server>");
+	if(argc != 4) {
+		fprintf(stderr, "Usage: %s <client_id> <server_ip> <server_port>\n", argv[0]);
+		exit(EXIT_FAILURE);
+	}
 
 	// parse the client id
-	char client_id[11];
-	memset(client_id, 0, sizeof(client_id));
+	char client_id[ID_LENGTH + 1]; // 10 + 1 for the null terminator
+	void *ret = memset(client_id, 0, sizeof(client_id));
+	DIE(ret == NULL, "memset failed");
+
 	int rc = sscanf(argv[1], "%s", client_id);
 	DIE(rc != 1, "Given client id is invalid");
+
+	// check if the client id has the right length
+	if(strlen(client_id) > ID_LENGTH) {
+		fprintf(stderr, "Client id is too long\n");
+		exit(EXIT_FAILURE);
+	}
+
 	// add the null terminator to the client id
 	client_id[strlen(client_id)] = '\0';
 
@@ -145,25 +173,28 @@ int main(int argc, char *argv[]) {
 	struct sockaddr_in serv_addr;
 	socklen_t socket_len = sizeof(struct sockaddr_in);
 
-	memset(&serv_addr, 0, socket_len);
+	ret = memset(&serv_addr, 0, socket_len);
+	DIE(ret == NULL, "memset failed");
 	// set the server to work on IPv4
 	serv_addr.sin_family = AF_INET;
 	// set the port in the network byte order
 	serv_addr.sin_port = htons(port);
 	// set the server ip address
 	rc = inet_pton(AF_INET, argv[2], &serv_addr.sin_addr.s_addr);
-	DIE(rc <= 0, "inet_pton");
+	DIE(rc <= 0, "inet_pton failed");
 
 	// connect the socket to the server
 	rc = connect(tcp_socket_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
-	DIE(rc < 0, "connect");
+	DIE(rc < 0, "connect failed");
 
 	// create a TCP packet to add the client id to the server
 	char topic[TOPIC_SIZE];
-	memset(topic, 0, sizeof(topic));
+	ret = memset(topic, 0, sizeof(topic));
+	DIE(ret == NULL, "memset failed");
 	
 	// copy the client id to the topic
-	memcpy(topic, client_id, strlen(client_id) + 1);
+	ret = memcpy(topic, client_id, strlen(client_id) + 1);
+	DIE(ret == NULL, "memcpy failed");
 
 	// create a TCP packet to send the client id to the server
 	struct tcp_packet new_subscriber_packet = create_tcp_packet(serv_addr.sin_addr.s_addr, htons(port),
@@ -174,13 +205,15 @@ int main(int argc, char *argv[]) {
 	DIE(bytes_sent < 0, "send failed");
 
 	// deactivate buffering for stdout
-	setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+	rc = setvbuf(stdout, NULL, _IONBF, BUFSIZ);
+	DIE(rc < 0, "setvbuf failed");
 
 	// run the client
 	run_tcp_client(tcp_socket_fd, client_id);
 
 	// close the socket
-	close(tcp_socket_fd);
+	rc = close(tcp_socket_fd);
+	DIE(rc < 0, "close failed");
 
 	return 0;
  }

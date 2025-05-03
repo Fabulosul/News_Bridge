@@ -24,7 +24,8 @@ bool insert_node(struct doubly_linked_list *list, void *data, int data_size) {
     DIE(new_node == NULL, "malloc failed");
     new_node->data = malloc(data_size);
     DIE(new_node->data == NULL, "malloc failed");
-    memcpy(new_node->data, data, data_size);
+    void *rc = memcpy(new_node->data, data, data_size);
+    DIE(rc == NULL, "memcpy failed");
     new_node->data_size = data_size;
 
     if(is_empty(list)) {

@@ -19,6 +19,7 @@
 #define NUM_SOCKETS 2 // stdin + tcp socket
 #define MAX_BUFFER_SIZE 50 + 20 // sizeof(topic) + memory for the actual command(ex: "subscribe")
 #define TOPIC_SIZE 51 // 50 + 1 for the null terminator
+#define ID_LENGTH 10
 
 /**
  * @brief Prints a TCP packet in the format: <IP>:<PORT> - <TOPIC> - <DATA_TYPE> - <MESSAGE>

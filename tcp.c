@@ -113,18 +113,20 @@ struct tcp_packet create_tcp_packet(int ip, short int port, char *topic,
                                     unsigned char data_type, char *content) {
     // Create a TCP packet with the given parameters    
     struct tcp_packet packet;
-    memset(&packet, 0, sizeof(packet));
+    void *ret = memset(&packet, 0, sizeof(packet));
     
     // Copy the parameters into the packet struct
     packet.ip = ip;
     packet.port = port;
     packet.data_type = data_type;
     
-    memcpy(packet.topic, topic, sizeof(packet.topic));
+    ret = memcpy(packet.topic, topic, sizeof(packet.topic));
+    DIE(ret == NULL, "memcpy failed");
     packet.topic[sizeof(packet.topic) - 1] = '\0';
     packet.topic_len = htonl(strlen(packet.topic));
     
-    memcpy(packet.content, content, sizeof(packet.content));
+    ret = memcpy(packet.content, content, sizeof(packet.content));
+    DIE(ret == NULL, "memcpy failed");
     packet.content[sizeof(packet.content) - 1] = '\0';
 
     switch(data_type) {
