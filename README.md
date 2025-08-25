@@ -1,7 +1,7 @@
 **Tudor Robert Fabian**
 **322CAa**
 
-# Homework 2 - TCP and UDP client-server application for message management
+# News Bridge - TCP and UDP client-server application for message management
 
 ## The TCP Protocol
 - The TCP protocol is used to communicate between the server and the TCP clients.
